@@ -1,0 +1,26 @@
+{
+	"name": "image-converter",
+	"version": "1.0.0",
+	"main": "server.js",
+	"scripts": {
+		"start": "node server.js",
+		"dev": "nodemon server.js",
+		"serve": "pm2 start server.js --watch",
+		"monitor": "pm2 monit",
+		"stop": "pm2 stop server.js",
+		"restart": "pm2 restart server.js"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"description": "",
+	"dependencies": {
+		"body-parser": "^1.20.3",
+		"express": "^4.21.2",
+		"multer": "^1.4.5-lts.1",
+		"sharp": "^0.33.5"
+	},
+	"devDependencies": {
+		"nodemon": "^3.1.9"
+	}
+}
