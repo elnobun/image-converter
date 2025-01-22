@@ -8,7 +8,8 @@
 		"serve": "pm2 start server.js --watch",
 		"monitor": "pm2 monit",
 		"stop": "pm2 stop server.js",
-		"restart": "pm2 restart server.js"
+		"restart": "pm2 restart server.js",
+		"deploy": "cp -R public/* docs && git add docs && git commit -m 'Deploy to GitHub Pages' && git push"
 	},
 	"keywords": [],
 	"author": "",
