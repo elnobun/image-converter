@@ -1,5 +1,3 @@
-import imageCompression from "browser-image-compression";
-
 const dropArea = document.getElementById("dropArea");
 const fileInput = document.getElementById("fileInput");
 const convertButton = document.getElementById("convertButton");
