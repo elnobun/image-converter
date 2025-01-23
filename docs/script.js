@@ -285,3 +285,25 @@ clearAllButton.addEventListener("click", () => {
 	updateProgress(0); // Reset progress bar
 	toggleUIVisibility();
 });
+
+function isSafari() {
+	return /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
+}
+
+function showSafariWarning() {
+	const safariWarning = document.getElementById("safariWarning");
+	if (safariWarning) {
+		safariWarning.style.display = "flex";
+		safariWarning.style.flexDirection = "column";
+		safariWarning.style.justifyContent = "center";
+		safariWarning.style.alignItems = "center";
+		safariWarning.style.fontSize = "1.5em";
+	}
+}
+
+// Run on page load
+document.addEventListener("DOMContentLoaded", () => {
+	if (isSafari()) {
+		showSafariWarning();
+	}
+});
