@@ -107,21 +107,25 @@ img {
 	border: none;
 	text-decoration: none;
 	border-radius: 4px;
-	cursor: pointer;
 	font-size: 12px;
 }
 
 .file-type {
 	/* background-color: #6c63ff; */
 	background-color: #1b1b1b;
+	cursor: not-allowed;
 }
 
-.download-btn {
-	background-color: #4CAF50;
+.download-btn.gray {
+	background-color: gray;
+	color: white;
+	cursor: not-allowed;
 }
 
-.download-btn:hover {
-	background-color: #5a55d6;
+.download-btn.green {
+	background-color: green;
+	color: white;
+	cursor: pointer;
 }
 
 .remove-btn {
@@ -152,11 +156,27 @@ img {
 	margin: 20px auto
 }
 
-.progress-fill {
+/* .progress-fill {
 	width: 0;
 	height: 100%;
 	background-color: #4CAF50;
 	transition: width 0.3s ease;
+} */
+
+.progress-container {
+	width: 100%;
+	background-color: #f0f0f0;
+	border: 1px solid #ccc;
+	border-radius: 5px;
+	overflow: hidden;
+	height: 15px;
+}
+
+.progress-fill {
+	height: 100%;
+	background-color: #4caf50;
+	width: 0;
+	transition: width 0.2s ease-in-out;
 }
 
 #compressionSettings {

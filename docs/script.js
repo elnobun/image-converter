@@ -1,21 +1,22 @@
+import imageCompression from "browser-image-compression";
+
 const dropArea = document.getElementById("dropArea");
 const fileInput = document.getElementById("fileInput");
 const convertButton = document.getElementById("convertButton");
 const clearAllButton = document.getElementById("clearAllButton");
 const imageTableContainer = document.getElementById("table-container");
-const progressBar = document.getElementById("progressBar");
 const imageTableBody = document.getElementById("imageTableBody");
 const compressionSettings = document.getElementById("compressionSettings");
 const compressionRange = document.getElementById("compressionRange");
 const compressionValue = document.getElementById("compressionValue");
 
 let uploadedFiles = []; // Track uploaded files
+let convertedFiles = {}; // Track converted files by filename
 
-// Initially hide convert button, clearAll button, table, and progress bar
+// Initially hide UI elements
 convertButton.style.display = "none";
 clearAllButton.style.display = "none";
 imageTableContainer.style.display = "none";
-progressBar.style.display = "none";
 compressionSettings.style.display = "none";
 
 // Drag & Drop Events
@@ -57,7 +58,10 @@ function handleFiles(files) {
 		}
 
 		// Add file to the table
-		addFileToTable(file);
+		if (!uploadedFiles.some((f) => f.name === file.name)) {
+			addFileToTable(file);
+			uploadedFiles.push(file);
+		}
 	});
 
 	toggleUIVisibility(); // Show buttons and table after thumbnails are uploaded
@@ -85,24 +89,24 @@ function addFileToTable(file) {
 	const convertedSizeCell = document.createElement("td");
 	convertedSizeCell.textContent = "Pending";
 
-	// Compression cell (placeholder)
+	// Compression cell
 	const compressionCell = document.createElement("td");
 	compressionCell.textContent = "Pending";
 
-	// File type cell (placeholder)
+	// File type cell
 	const fileTypeCell = document.createElement("td");
 	const fileTypeSpan = document.createElement("span");
 	fileTypeSpan.textContent = "WEBP";
-	fileTypeSpan.classList.add("file-type"); // Add the class here
-	fileTypeCell.appendChild(fileTypeSpan)
+	fileTypeSpan.classList.add("file-type");
+	fileTypeCell.appendChild(fileTypeSpan);
 
-	// Download cell (placeholder)
+	// Download cell
 	const downloadCell = document.createElement("td");
 	const downloadButton = document.createElement("a");
-	// downloadButton.textContent = "WEBP";
-	// downloadButton.classList.add = "download-btn";
+	downloadButton.textContent = "Download";
 	downloadButton.href = "#";
 	downloadButton.style.pointerEvents = "none"; // Disabled until converted
+	downloadButton.className = "download-btn gray"; // Initially gray
 	downloadCell.appendChild(downloadButton);
 
 	// Delete file cell
@@ -127,392 +131,159 @@ function addFileToTable(file) {
 
 	// Append row to table
 	imageTableBody.appendChild(row);
-
-	// Add the file to the global uploadedFiles array
-	uploadedFiles.push(file);
-
-	toggleUIVisibility(); // Update visibility after adding a file
 }
 
-function removeImage(row, file) {
-	// Remove the row from the table
-	imageTableBody.removeChild(row);
-
-	// Remove the file from the uploadedFiles array
-	uploadedFiles = uploadedFiles.filter((f) => f !== file);
-
-	toggleUIVisibility(); // Update visibility after removing a file
-}
-
-// Show or hide buttons and table based on the number of uploaded files
-function toggleUIVisibility() {
-	const hasFiles = uploadedFiles.length > 0;
-
-	convertButton.style.display = hasFiles ? "inline-block" : "none";
-	clearAllButton.style.display = hasFiles ? "inline-block" : "none";
-	imageTableContainer.style.display = hasFiles ? "block" : "none";
-	progressBar.style.display = hasFiles ? "block" : "none";
-	compressionSettings.style.display = hasFiles ? "block" : "none";
-}
-
-// Clear all files
-clearAllButton.addEventListener("click", () => {
-	imageTableBody.innerHTML = ""; // Clear table
-	uploadedFiles = []; // Clear array
-	toggleUIVisibility(); // Update visibility
-});
-
-// Update progress bar
-function updateProgress(percentage) {
-	const progressFill = document.getElementById("progressFill");
-	progressFill.style.width = `${percentage}%`;
-}
-
-// Update compression value
+// Update displayed compression quality when the slider changes
 compressionRange.addEventListener("input", () => {
-	compressionValue.textContent = compressionRange.value;
+	const value = compressionRange.value; // Get the slider value
+	compressionValue.textContent = value; // Update the displayed value
 });
 
-// Convert images to WebP
-convertButton.addEventListener("click", async () => {
+// resizeImageForSafari function
+async function compressWithRetries(file, options, maxRetries = 3) {
+	let retries = 0;
+	let compressedFile;
+
+	while (retries < maxRetries) {
+		try {
+			console.log(`Attempt ${retries + 1}: Compressing with quality ${options.initialQuality}`);
+			compressedFile = await imageCompression(file, options);
+
+			// If compressed size is smaller, break the loop
+			if (compressedFile.size < file.size) {
+				console.log("Compression succeeded:", {
+					originalSize: formatSize(file.size),
+					compressedSize: formatSize(compressedFile.size),
+				});
+				break;
+			}
+
+			// If not smaller, reduce quality for the next retry
+			options.initialQuality -= 0.1;
+			retries++;
+		} catch (error) {
+			console.error(`Compression error on attempt ${retries + 1}:`, error);
+			retries++;
+		}
+	}
+
+	return compressedFile;
+}
+
+
+async function convertFiles() {
 	const totalFiles = uploadedFiles.length;
-	if (totalFiles === 0) return;
 
-	for (let i = 0; i < totalFiles; i++) {
-		const file = uploadedFiles[i];
+	if (totalFiles === 0) {
+		alert("No files to convert!");
+		return;
+	}
 
-		// Use browser-image-compression to compress and convert the file
+	uploadedFiles.forEach(async (file, index) => {
 		const options = {
-			maxSizeMB: 1, // Maximum file size in MB
-			maxWidthOrHeight: 1920, // Maximum dimensions
-			useWebWorker: true, // Enable multi-threading
-			fileType: "image/webp", // Convert to WebP format
-			initialQuality: compressionRange.value / 100, // Compression quality
+			maxSizeMB: 1,
+			maxWidthOrHeight: 1920,
+			useWebWorker: true,
+			fileType: "image/webp",
+			initialQuality: compressionRange.value / 100, // Adjust compression based on slider
 		};
+
+		const row = imageTableBody.querySelectorAll("tr")[index];
+		const compressionCell = row.cells[4];
+		const convertedSizeCell = row.cells[3];
+
+		// Set up a progress bar
+		compressionCell.innerHTML = ""; // Clear "Pending"
+		const progressContainer = document.createElement("div");
+		progressContainer.className = "progress-container";
+
+		const progressFill = document.createElement("div");
+		progressFill.className = "progress-fill";
+		progressContainer.appendChild(progressFill);
+		compressionCell.appendChild(progressContainer);
+
+		// Simulate progress update
+		for (let i = 0; i <= 100; i += 20) {
+			await new Promise((resolve) => setTimeout(resolve, 100)); // Simulate delay
+			progressFill.style.width = `${i}%`;
+		}
 
 		try {
 			const compressedFile = await imageCompression(file, options);
-			console.log("Compressed file:", compressedFile);
 
-			// Update the table with the compressed file details
-			const row = imageTableBody.rows[i];
-			const convertedSizeCell = row.cells[3];
+			// Update converted size cell
 			convertedSizeCell.textContent = formatSize(compressedFile.size);
 
 			const originalSizeCell = row.cells[2];
 			const originalSize = parseFloat(originalSizeCell.textContent) * 1024; // Convert back to bytes
 			const compressionPercent = ((1 - compressedFile.size / originalSize) * 100).toFixed(2);
-			const compressionCell = row.cells[4];
+
+			// Replace progress bar with compression percentage
 			compressionCell.textContent = `-${compressionPercent}%`;
 
-			const fileTypeCell = row.cells[5];
-			const fileTypeSpan = document.createElement("span");
-			fileTypeSpan.textContent = "WEBP";
-			fileTypeSpan.classList.add("file-type"); // Add the class here
-			// fileTypeCell.appendChild(fileTypeSpan)
-
 			const downloadCell = row.cells[6];
-			const downloadButton = document.createElement("a");
-			downloadButton.href = URL.createObjectURL(compressedFile);
-			downloadButton.download = `${file.name.split(".")[0]}.webp`;
-			downloadButton.textContent = "Download";
-			downloadButton.className = "download-btn";
-			downloadButton.style.pointerEvents = "auto"; // Enable the button
-			downloadCell.appendChild(downloadButton);
+			let downloadButton = downloadCell.querySelector(".download-btn");
 
-			// Update progress bar
-			const progress = Math.round(((i + 1) / totalFiles) * 100);
-			updateProgress(progress);
+			if (!convertedFiles[file.name]) {
+				// First-time conversion
+				convertedFiles[file.name] = compressedFile; // Save the compressed file
+				downloadButton.href = URL.createObjectURL(compressedFile);
+				downloadButton.download = `${file.name.split(".")[0]}.webp`;
+				downloadButton.style.pointerEvents = "auto"; // Enable the button
+				downloadButton.classList.remove("gray");
+				downloadButton.classList.add("green"); // Turn green after conversion
+			} else {
+				// Update download link for adjusted compression
+				URL.revokeObjectURL(downloadButton.href); // Revoke old object URL
+				downloadButton.href = URL.createObjectURL(compressedFile);
+				convertedFiles[file.name] = compressedFile; // Update stored file
+			}
 		} catch (error) {
 			console.error("Error during conversion:", error);
 		}
+	});
+
+	// Update overall progress bar (if applicable)
+	updateProgress(100, document.getElementById("progressFill"));
+}
+
+convertButton.addEventListener("click", convertFiles);
+
+function removeImage(row, file) {
+	imageTableBody.removeChild(row);
+	uploadedFiles = uploadedFiles.filter((f) => f !== file);
+	delete convertedFiles[file.name]; // Remove from converted files
+	toggleUIVisibility();
+}
+
+function toggleUIVisibility() {
+	const hasFiles = uploadedFiles.length > 0;
+	convertButton.style.display = hasFiles ? "inline-block" : "none";
+	clearAllButton.style.display = hasFiles ? "inline-block" : "none";
+	imageTableContainer.style.display = hasFiles ? "block" : "none";
+	// progressBar.style.display = hasFiles ? "block" : "none";
+	compressionSettings.style.display = hasFiles ? "block" : "none";
+}
+
+function updateProgress(percentage, progressFill) {
+	// const progressFill = document.getElementById("progressFill");
+
+	if (!progressFill) {
+		return;
 	}
 
-	// Complete progress
-	updateProgress(100);
-	console.log("All files converted!");
-});
+	progressFill.style.width = `${percentage}%`;
+}
 
 
-// Format file size
 function formatSize(size) {
 	return `${(size / 1024).toFixed(2)} KB`;
 }
 
-
-
-// const dropArea = document.getElementById("dropArea");
-// const fileInput = document.getElementById("fileInput");
-// const convertButton = document.getElementById("convertButton");
-// const clearAllButton = document.getElementById("clearAllButton");
-// const imageTableContainer = document.getElementById("table-container");
-// const progressBar = document.getElementById("progressBar");
-// const imageTableBody = document.getElementById("imageTableBody");
-// const compressionSettings = document.getElementById("compressionSettings");
-// const compressionRange = document.getElementById("compressionRange");
-// const compressionValue = document.getElementById("compressionValue");
-
-
-// let uploadedFiles = []; // Track uploaded files
-
-// // Initially hide upload button, clearAll button, table, and progress bar
-// convertButton.style.display = "none";
-// clearAllButton.style.display = "none";
-// imageTableContainer.style.display = "none";
-// progressBar.style.display = "none";
-// compressionSettings.style.display = "none";
-
-// // Drag & Drop Events
-// dropArea.addEventListener("dragover", (e) => {
-// 	e.preventDefault();
-// 	dropArea.classList.add("drag-over");
-// });
-
-// dropArea.addEventListener("dragleave", () => {
-// 	dropArea.classList.remove("drag-over");
-// });
-
-// dropArea.addEventListener("drop", (e) => {
-// 	e.preventDefault();
-// 	dropArea.classList.remove("drag-over");
-// 	handleFiles(e.dataTransfer.files);
-// });
-
-// // Handle file input
-// fileInput.addEventListener("change", (e) => {
-// 	handleFiles(e.target.files);
-// });
-
-// // Handle dropped or selected files
-// function handleFiles(files) {
-// 	Array.from(files).forEach(async (file) => {
-// 		// Validate file type
-// 		const validTypes = ["image/jpeg", "image/png", "image/webp"];
-// 		if (!validTypes.includes(file.type)) {
-// 			alert(`Invalid file type: ${file.name}. Only JPEG, PNG, and WEBP are allowed.`);
-// 			return;
-// 		}
-
-// 		// Validate file size (e.g., max 5MB)
-// 		const maxSize = 5 * 1024 * 1024; // 5MB
-// 		if (file.size > maxSize) {
-// 			alert(`File too large: ${file.name}. Maximum size is 5MB.`);
-// 			return;
-// 		}
-
-// 		// Upload the file directly to the server
-// 		const isUploaded = await uploadFile(file);
-
-// 		if (isUploaded) {
-// 			addFileToTable(file); // Add file to table
-// 		}
-// 	});
-
-// 	toggleUIVisibility(); // Show buttons and table after thumbnails are uploaded
-// }
-
-// // Upload a single file to the server
-// async function uploadFile(file) {
-// 	const formData = new FormData();
-// 	formData.append("images", file);
-
-// 	try {
-// 		const response = await fetch("/uploads", {
-// 			method: "POST",
-// 			body: formData,
-// 		});
-
-// 		if (!response.ok) {
-// 			console.error(`Failed to upload file: ${file.name}`);
-// 			return false;
-// 		}
-
-// 		console.log(`File uploaded successfully: ${file.name}`);
-// 		return true;
-// 	} catch (error) {
-// 		console.error(`Error uploading file: ${file.name}`, error);
-// 		return false;
-// 	}
-// }
-
-// function addFileToTable(file) {
-// 	// Proceed with valid files
-// 	const row = document.createElement("tr");
-
-// 	// Thumbnail cell
-// 	const thumbnailCell = document.createElement("td");
-// 	const img = document.createElement("img");
-// 	img.src = URL.createObjectURL(file);
-// 	img.alt = file.name;
-// 	thumbnailCell.appendChild(img);
-
-// 	// Filename cell
-// 	const filenameCell = document.createElement("td");
-// 	filenameCell.textContent = file.name;
-
-// 	// Original size cell
-// 	const originalSizeCell = document.createElement("td");
-// 	originalSizeCell.textContent = formatSize(file.size);
-
-// 	// Converted size cell (placeholder)
-// 	const convertedSizeCell = document.createElement("td");
-// 	convertedSizeCell.textContent = "Pending";
-
-// 	// Compression percentage cell (placeholder)
-// 	const compressionCell = document.createElement("td");
-// 	compressionCell.textContent = "Pending";
-
-// 	// Download cell (placeholder)
-// 	const downloadCell = document.createElement("td");
-// 	const downloadButton = document.createElement("a");
-// 	downloadButton.textContent = "WEBP";
-// 	downloadButton.className = "download-btn";
-// 	downloadButton.href = "#";
-// 	downloadButton.style.pointerEvents = "none";
-// 	downloadCell.appendChild(downloadButton);
-
-// 	// Remove cell
-// 	const removeCell = document.createElement("td");
-// 	const removeButton = document.createElement("button");
-// 	removeButton.textContent = "❌";
-// 	removeButton.className = "remove-btn";
-// 	removeButton.onclick = () => {
-// 		removeImage(row, file);
-// 	};
-// 	removeCell.appendChild(removeButton);
-
-// 	// Append all cells to row
-// 	row.appendChild(thumbnailCell);
-// 	row.appendChild(filenameCell);
-// 	row.appendChild(originalSizeCell);
-// 	row.appendChild(convertedSizeCell);
-// 	row.appendChild(compressionCell);
-// 	row.appendChild(downloadCell);
-// 	row.appendChild(removeCell);
-
-// 	// Append row to table
-// 	imageTableBody.appendChild(row);
-
-// 	// Add the file to the global uploadedFiles array
-// 	uploadedFiles.push(file);
-
-// 	// Enable buttons if there are uploaded files and show the table/progress bar
-// 	toggleUIVisibility()
-
-// 	// Update the file summary
-// 	updateFileSummary();
-// }
-
-// // Remove an image
-// function removeImage(row, file) {
-// 	// Remove the row from the table
-// 	imageTableBody.removeChild(row);
-
-// 	// Remove the file from the uploadedFiles array
-// 	uploadedFiles = uploadedFiles.filter((f) => f !== file);
-
-// 	// Show buttons and table after thumbnails are uploaded
-// 	toggleUIVisibility();
-
-// 	updateFileSummary();
-// }
-
-
-// function updateProgress(percentage) {
-// 	const progressFill = document.getElementById("progressFill");
-// 	progressFill.style.width = `${percentage}%`;
-// }
-
-// // Show or hide buttons and table based on the number of uploaded files
-// function toggleUIVisibility() {
-// 	console.log('Called')
-// 	const hasFiles = uploadedFiles.length > 0;
-
-// 	convertButton.style.display = hasFiles ? "inline-block" : "none";
-// 	clearAllButton.style.display = hasFiles ? "inline-block" : "none";
-// 	imageTableContainer.style.display = hasFiles ? "block" : "none";
-// 	progressBar.style.display = hasFiles ? "block" : "none";
-// 	compressionSettings.style.display = hasFiles ? "block" : "none";
-// }
-
-// clearAllButton.addEventListener("click", () => {
-// 	// Clear the table
-// 	imageTableBody.innerHTML = "";
-
-// 	// Clear the uploadedFiles array
-// 	uploadedFiles = [];
-
-// 	toggleUIVisibility();
-
-// 	updateFileSummary();
-// });
-
-// function updateFileSummary() {
-// 	const fileSummary = document.getElementById("fileSummary");
-// 	const totalSize = uploadedFiles.reduce((acc, file) => acc + file.size, 0);
-// 	fileSummary.textContent = `${uploadedFiles.length} files, total size: ${formatSize(totalSize)}`;
-// }
-
-// // Update the displayed compression value when the slider changes
-// compressionRange.addEventListener("input", () => {
-// 	compressionValue.textContent = compressionRange.value;
-// });
-
-// // Convert images to WebP
-// convertButton.addEventListener("click", async () => {
-// 	const compressionLevel = compressionRange.value; // Get the selected compression level
-
-// 	// Show the progress bar
-// 	try {
-// 		const requestBody = {
-// 			compressionLevel,
-// 			files: uploadedFiles.map((file) => ({
-// 				fileName: file.name,
-// 			})),
-// 		};
-
-// 		const response = await fetch("/convert", {
-// 			method: "POST",
-// 			headers: { "Content-Type": "application/json" },
-// 			body: JSON.stringify(requestBody),
-// 		});
-
-// 		if (!response.ok) {
-// 			console.error("Conversion failed");
-// 			return;
-// 		}
-
-// 		const result = await response.json();
-// 		console.log("Converted files:", result.files);
-
-// 		result.files.forEach((convertedFile, index) => {
-// 			const row = imageTableBody.rows[index];
-
-// 			// Converted size cell
-// 			const convertedSizeCell = row.cells[3];
-// 			convertedSizeCell.textContent = formatSize(convertedFile.size);
-
-// 			// Compression percentage cell
-// 			const originalSizeCell = row.cells[2];
-// 			const originalSize = parseFloat(originalSizeCell.textContent) * 1024; // Convert back to bytes
-// 			const compressionPercent = ((1 - convertedFile.size / originalSize) * 100).toFixed(0);
-// 			const compressionCell = row.cells[4];
-// 			compressionCell.textContent = `-${compressionPercent}%`;
-
-// 			// Update download link
-// 			const downloadCell = row.cells[5];
-// 			const downloadButton = downloadCell.querySelector("a");
-// 			downloadButton.href = `/webp/${encodeURIComponent(convertedFile.fileName)}`;
-// 			downloadButton.download = convertedFile.fileName;
-// 			downloadButton.style.pointerEvents = "auto"; // Enable the button
-// 		});
-// 	} catch (error) {
-// 		console.error("Error during conversion:", error);
-// 	}
-// })
-
-// // Format file size
-// function formatSize(size) {
-// 	return `${(size / 1024).toFixed(2)} KB`;
-// }
-
+clearAllButton.addEventListener("click", () => {
+	imageTableBody.innerHTML = "";
+	uploadedFiles = [];
+	convertedFiles = {};
+	updateProgress(0); // Reset progress bar
+	toggleUIVisibility();
+});
